@@ -1,71 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
 
-// Popular meme templates with base64 encoded images (small versions for demo)
-const MEME_TEMPLATES = [
-  {
-    id: 1,
-    name: "Drake Hotline Bling",
-    url: "https://i.imgflip.com/30b1gx.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 2,
-    name: "Two Buttons",
-    url: "https://i.imgflip.com/1g8my4.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 3,
-    name: "Distracted Boyfriend",
-    url: "https://i.imgflip.com/1ur9b0.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 4,
-    name: "Change My Mind",
-    url: "https://i.imgflip.com/24y43o.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 5,
-    name: "Left Exit 12 Off Ramp",
-    url: "https://i.imgflip.com/22bdq6.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 6,
-    name: "American Chopper Argument",
-    url: "https://i.imgflip.com/2896ro.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 7,
-    name: "Hide the Pain Harold",
-    url: "https://i.imgflip.com/gk5el.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 8,
-    name: "Expanding Brain",
-    url: "https://i.imgflip.com/1jwhww.jpg",
-    width: 300,
-    height: 300
-  },
-  {
-    id: 9,
-    name: "Disaster Girl",
-    url: "https://i.imgflip.com/23ls.jpg",
-    width: 300,
-    height: 300
-  }
-];
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 export const MemeTemplate = ({ template, onSelect, selected }) => {
   return (
@@ -79,9 +16,19 @@ export const MemeTemplate = ({ template, onSelect, selected }) => {
   );
 };
 
-export const MemeCanvas = ({ selectedTemplate, customImage, textLines, fontFamily, fontSize, textColor }) => {
+export const MemeCanvas = ({ 
+  selectedTemplate, 
+  customImage, 
+  textLines, 
+  fontFamily, 
+  fontSize, 
+  textColor,
+  onMemeCreated 
+}) => {
   const canvasRef = useRef(null);
   const [image, setImage] = useState(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createdMemeUrl, setCreatedMemeUrl] = useState(null);
 
   useEffect(() => {
     if (selectedTemplate || customImage) {
@@ -123,32 +70,106 @@ export const MemeCanvas = ({ selectedTemplate, customImage, textLines, fontFamil
     ctx.strokeStyle = 'black';
     
     textLines.forEach(line => {
-      const x = canvas.width / 2 + (line.horizontalPosition * canvas.width / 100);
-      const y = canvas.height * (line.verticalPosition / 100);
-      
-      // Draw text outline
-      ctx.strokeText(line.text, x, y);
-      // Draw text fill
-      ctx.fillText(line.text, x, y);
+      if (line.text.trim()) {
+        const x = canvas.width / 2 + ((line.horizontalPosition - 50) * canvas.width / 100);
+        const y = canvas.height * (line.verticalPosition / 100);
+        
+        // Draw text outline
+        ctx.strokeText(line.text, x, y);
+        // Draw text fill
+        ctx.fillText(line.text, x, y);
+      }
     });
   };
 
+  const createMemeWithAPI = async () => {
+    if (!selectedTemplate) {
+      alert('Please select a template first');
+      return;
+    }
+
+    setIsCreating(true);
+    
+    try {
+      const boxes = textLines
+        .filter(line => line.text.trim())
+        .map(line => ({
+          text: line.text,
+          x: line.horizontalPosition,
+          y: line.verticalPosition,
+          width: 200,
+          height: 50,
+          color: textColor,
+          outline_color: "#000000"
+        }));
+
+      const response = await axios.post(`${API}/memes/create`, {
+        template_id: selectedTemplate.id,
+        boxes: boxes,
+        font_family: fontFamily,
+        font_size: fontSize
+      });
+
+      if (response.data.success) {
+        setCreatedMemeUrl(response.data.data.url);
+        onMemeCreated && onMemeCreated(response.data.data);
+      } else {
+        alert(response.data.error_message || 'Failed to create meme');
+      }
+    } catch (error) {
+      console.error('Error creating meme:', error);
+      alert('Error creating meme: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const downloadMeme = () => {
-    const canvas = canvasRef.current;
-    const link = document.createElement('a');
-    link.download = 'meme.png';
-    link.href = canvas.toDataURL();
-    link.click();
+    if (createdMemeUrl) {
+      // Download the API-generated meme
+      const link = document.createElement('a');
+      link.href = createdMemeUrl;
+      link.download = 'meme.jpg';
+      link.target = '_blank';
+      link.click();
+    } else {
+      // Download the canvas version
+      const canvas = canvasRef.current;
+      const link = document.createElement('a');
+      link.download = 'meme.png';
+      link.href = canvas.toDataURL();
+      link.click();
+    }
   };
 
   return (
     <div className="meme-canvas-container">
       {selectedTemplate || customImage ? (
         <div>
-          <canvas ref={canvasRef} className="meme-canvas" />
-          <button className="download-btn" onClick={downloadMeme}>
-            Download Meme
-          </button>
+          <div className="canvas-section">
+            <h3>Preview</h3>
+            <canvas ref={canvasRef} className="meme-canvas" />
+          </div>
+          
+          {createdMemeUrl && (
+            <div className="generated-meme-section">
+              <h3>Generated Meme</h3>
+              <img src={createdMemeUrl} alt="Generated meme" className="generated-meme" />
+            </div>
+          )}
+          
+          <div className="meme-actions">
+            <button 
+              className="create-meme-btn" 
+              onClick={createMemeWithAPI}
+              disabled={isCreating}
+            >
+              {isCreating ? 'Creating...' : 'Create Meme with API'}
+            </button>
+            <button className="download-btn" onClick={downloadMeme}>
+              Download Meme
+            </button>
+          </div>
         </div>
       ) : (
         <div className="canvas-placeholder">
@@ -160,7 +181,16 @@ export const MemeCanvas = ({ selectedTemplate, customImage, textLines, fontFamil
   );
 };
 
-export const TextCustomizer = ({ textLines, setTextLines, fontFamily, setFontFamily, fontSize, setFontSize, textColor, setTextColor }) => {
+export const TextCustomizer = ({ 
+  textLines, 
+  setTextLines, 
+  fontFamily, 
+  setFontFamily, 
+  fontSize, 
+  setFontSize, 
+  textColor, 
+  setTextColor 
+}) => {
   const addTextLine = () => {
     const newLine = {
       id: Date.now(),
@@ -273,6 +303,7 @@ export const TextCustomizer = ({ textLines, setTextLines, fontFamily, setFontFam
 
 export const FileUploader = ({ onImageUpload }) => {
   const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const inputRef = useRef(null);
 
   const handleDrag = (e) => {
@@ -302,13 +333,43 @@ export const FileUploader = ({ onImageUpload }) => {
     }
   };
 
-  const handleFile = (file) => {
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        onImageUpload(e.target.result);
-      };
-      reader.readAsDataURL(file);
+  const handleFile = async (file) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    setUploading(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      if (response.data.success) {
+        onImageUpload(response.data.data.url);
+      } else {
+        alert('Failed to upload image');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Error uploading file: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleUrlSubmit = (e) => {
+    e.preventDefault();
+    const url = e.target.url.value.trim();
+    if (url) {
+      onImageUpload(url);
+      e.target.url.value = '';
     }
   };
 
@@ -334,20 +395,123 @@ export const FileUploader = ({ onImageUpload }) => {
           onChange={handleChange}
           style={{ display: 'none' }}
         />
-        <p>Choose File - No file chosen</p>
+        <p>{uploading ? 'Uploading...' : 'Choose File - No file chosen'}</p>
+      </div>
+      
+      <form onSubmit={handleUrlSubmit} className="url-form">
         <small>Or Enter Image URL</small>
         <input
           type="url"
+          name="url"
           placeholder="https://example.com/image.jpg"
-          onChange={(e) => {
-            if (e.target.value) {
-              onImageUpload(e.target.value);
-            }
-          }}
+          className="url-input"
         />
-      </div>
+        <button type="submit" className="url-submit-btn">Use URL</button>
+      </form>
     </div>
   );
 };
 
-export { MEME_TEMPLATES };
+export const UserMemes = ({ onMemeSelect }) => {
+  const [memes, setMemes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUserMemes();
+  }, []);
+
+  const loadUserMemes = async () => {
+    try {
+      const response = await axios.get(`${API}/memes`);
+      if (response.data.success) {
+        setMemes(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error loading user memes:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteMeme = async (memeId) => {
+    if (!window.confirm('Are you sure you want to delete this meme?')) return;
+    
+    try {
+      await axios.delete(`${API}/memes/${memeId}`);
+      setMemes(memes.filter(meme => meme.id !== memeId));
+    } catch (error) {
+      console.error('Error deleting meme:', error);
+      alert('Error deleting meme');
+    }
+  };
+
+  if (loading) {
+    return <div className="loading">Loading your memes...</div>;
+  }
+
+  return (
+    <div className="user-memes">
+      <h3>Your Created Memes</h3>
+      {memes.length === 0 ? (
+        <p>No memes created yet. Create your first meme!</p>
+      ) : (
+        <div className="memes-grid">
+          {memes.map(meme => (
+            <div key={meme.id} className="meme-item">
+              <img src={meme.url} alt="Created meme" />
+              <div className="meme-actions">
+                <button 
+                  className="use-meme-btn"
+                  onClick={() => onMemeSelect(meme)}
+                >
+                  Use Template
+                </button>
+                <button 
+                  className="delete-meme-btn"
+                  onClick={() => deleteMeme(meme.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const TemplateLoader = ({ onTemplatesLoaded }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const loadTemplates = async () => {
+    try {
+      const response = await axios.get(`${API}/memes/templates`);
+      if (response.data.success) {
+        onTemplatesLoaded(response.data.data);
+      } else {
+        setError('Failed to load templates');
+      }
+    } catch (error) {
+      console.error('Error loading templates:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="loading">Loading meme templates...</div>;
+  }
+
+  if (error) {
+    return <div className="error">Error: {error}</div>;
+  }
+
+  return null;
+};
